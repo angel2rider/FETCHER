@@ -90,32 +90,42 @@ def get_app_thumbnail(appname: str):
 @app_commands.describe(appname="Name of the app")
 @app_commands.autocomplete(appname=app_autocomplete)
 async def get(interaction: discord.Interaction, appname: str):
-    
+    import datetime
+
+    # Log who typed and what they typed
     user = interaction.user
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{timestamp}] {user} typed: /get {appname}")
-    
-    await interaction.response.defer(ephemeral=True)
+
+    # Safely defer the interaction
+    try:
+        await interaction.response.defer(ephemeral=True)
+    except discord.errors.NotFound:
+        pass  # interaction already responded or expired
+
+    # Refresh cached assets
     refresh_assets()
+
+    # Find matching assets
     matching_assets = [a for a in assets_cache if a["app"] == appname.lower()]
     if not matching_assets:
         await interaction.followup.send(f"❌ No files found for **{appname}**.")
         return
 
-    # Create buttons
+    # Create buttons for each platform
     view = discord.ui.View()
     for asset in matching_assets:
         emoji = PLATFORM_EMOJIS.get(asset['platform_ext'], "")
         label = f"{emoji} {asset['platform_ext']} ({asset['version']})"
         view.add_item(discord.ui.Button(label=label, style=discord.ButtonStyle.link, url=asset["download_url"]))
 
-    # Embed
+    # Embed with GitHub-hosted thumbnail in icons folder
     embed = discord.Embed(
         title=f"💾 Downloads for {appname.capitalize()}",
         description="Select your platform below to start the download:",
         color=discord.Color.green()
     )
-    embed.set_thumbnail(url=get_app_thumbnail(appname))
+    embed.set_thumbnail(url=f"{ICON_BASE_URL}{appname}.png")  # ICON_BASE_URL includes /icons/
     embed.set_footer(text="Direct downloads")
 
     builds_text = "\n".join(f"{a['version']} — {a['platform_ext']}" for a in matching_assets)
