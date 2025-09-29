@@ -7,6 +7,7 @@ from discord.ext import commands
 from flask import Flask
 from dotenv import load_dotenv
 import os
+import datetime
 
 load_dotenv()
 
@@ -89,9 +90,13 @@ def get_app_thumbnail(appname: str):
 @app_commands.describe(appname="Name of the app")
 @app_commands.autocomplete(appname=app_autocomplete)
 async def get(interaction: discord.Interaction, appname: str):
+    
+    user = interaction.user
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {user} typed: /get {appname}")
+    
     await interaction.response.defer(ephemeral=True)
     refresh_assets()
-
     matching_assets = [a for a in assets_cache if a["app"] == appname.lower()]
     if not matching_assets:
         await interaction.followup.send(f"❌ No files found for **{appname}**.")
