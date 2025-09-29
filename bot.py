@@ -29,7 +29,7 @@ PLATFORM_EMOJIS = {
 }
 
 # Base URL for raw GitHub files (icons stored in repo root)
-ICON_BASE_URL = "https://raw.githubusercontent.com/angel2rider/FETCHER/main/"
+ICON_BASE_URL = "https://raw.githubusercontent.com/angel2rider/FETCHER/main/icons/"
 
 # -------------------------
 # GitHub release fetching
