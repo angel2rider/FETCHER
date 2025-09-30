@@ -5,23 +5,14 @@ from discord.ext import commands
 from flask import Flask
 import threading
 import datetime
-import aiohttp
 from dotenv import load_dotenv
+import importlib
+import links  # import links module
 
 load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-GITHUB_USER = "angel2rider"
-GITHUB_REPO = "FETCHER"
-RELEASE_TAG = "v1.0"
 
-ICON_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{GITHUB_REPO}/main/icons/"
-
-bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
-assets_cache = []
-keep_alive_app = Flask("KeepAlive")
-
-# Platform emojis
 PLATFORM_EMOJIS = {
     "win": "🪟",
     "linux": "🐧",
@@ -30,35 +21,8 @@ PLATFORM_EMOJIS = {
     "ios": "📱"
 }
 
-# -------------------------
-# GitHub release fetching
-# -------------------------
-async def refresh_assets():
-    global assets_cache
-    url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/releases/tags/{RELEASE_TAG}"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as r:
-            if r.status == 200:
-                data = await r.json()
-                assets_cache = []
-                for asset in data["assets"]:
-                    filename = asset["name"]
-                    name_part, ext = os.path.splitext(filename)
-                    first_dash = name_part.find("-")
-                    last_dash = name_part.rfind("-")
-                    if first_dash == -1 or last_dash == -1 or first_dash == last_dash:
-                        continue
-                    app_name = name_part[:first_dash].lower()
-                    version = name_part[first_dash+1:last_dash]
-                    platform_ext = name_part[last_dash+1:].lower()
-                    assets_cache.append({
-                        "app": app_name,
-                        "version": version,
-                        "platform_ext": platform_ext,
-                        "download_url": asset["browser_download_url"]
-                    })
-            else:
-                assets_cache = []
+bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
+keep_alive_app = Flask("KeepAlive")
 
 # -------------------------
 # Keep-alive server
@@ -76,8 +40,10 @@ threading.Thread(target=run_keep_alive, daemon=True).start()
 # Autocomplete
 # -------------------------
 async def app_autocomplete(interaction: discord.Interaction, current: str):
-    await refresh_assets()
-    apps = sorted({a["app"] for a in assets_cache if current.lower() in a["app"]})[:25]
+    importlib.reload(links)  # reload links dynamically
+    APPS = links.APPS
+
+    apps = sorted([a for a in APPS if current.lower() in a])[:25]
     choices = [app_commands.Choice(name=a, value=a) for a in apps]
     try:
         await interaction.response.autocomplete(choices)
@@ -88,6 +54,8 @@ async def app_autocomplete(interaction: discord.Interaction, current: str):
 # Thumbnail helper
 # -------------------------
 def get_app_thumbnail(appname: str):
+    importlib.reload(links)
+    ICON_BASE_URL = links.ICON_BASE_URL
     return f"{ICON_BASE_URL}{appname.lower()}.png"
 
 # -------------------------
@@ -97,30 +65,25 @@ def get_app_thumbnail(appname: str):
 @app_commands.describe(appname="Name of the app")
 @app_commands.autocomplete(appname=app_autocomplete)
 async def get(interaction: discord.Interaction, appname: str):
-    # Log user + input
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{timestamp}] {interaction.user} typed: /get {appname}")
 
-    # Safe defer
-    try:
-        await interaction.response.defer(ephemeral=True)
-    except discord.errors.NotFound:
-        pass
+    await interaction.response.defer(ephemeral=True)
 
-    await refresh_assets()
-    matching_assets = [a for a in assets_cache if a["app"] == appname.lower()]
-    if not matching_assets:
+    importlib.reload(links)
+    APPS = links.APPS
+
+    app_assets = APPS.get(appname.lower())
+    if not app_assets:
         await interaction.followup.send(f"❌ No files found for **{appname}**.")
         return
 
-    # Buttons for each platform
     view = discord.ui.View()
-    for asset in matching_assets:
-        emoji = PLATFORM_EMOJIS.get(asset['platform_ext'], "")
-        label = f"{emoji} {asset['platform_ext']} ({asset['version']})"
-        view.add_item(discord.ui.Button(label=label, style=discord.ButtonStyle.link, url=asset["download_url"]))
+    for asset in app_assets:
+        emoji = PLATFORM_EMOJIS.get(asset['platform'], "")
+        label = f"{emoji} {asset['platform']} ({asset['version']})"
+        view.add_item(discord.ui.Button(label=label, style=discord.ButtonStyle.link, url=asset["url"]))
 
-    # Embed
     embed = discord.Embed(
         title=f"💾 Downloads for {appname.capitalize()}",
         description="Select your platform below to start the download:",
@@ -128,7 +91,7 @@ async def get(interaction: discord.Interaction, appname: str):
     )
     embed.set_thumbnail(url=get_app_thumbnail(appname))
     embed.set_footer(text="Direct downloads")
-    builds_text = "\n".join(f"{a['version']} — {a['platform_ext']}" for a in matching_assets)
+    builds_text = "\n".join(f"{a['version']} — {a['platform']}" for a in app_assets)
     embed.add_field(name="Available Builds", value=builds_text, inline=False)
 
     await interaction.followup.send(embed=embed, view=view)
@@ -139,7 +102,6 @@ async def get(interaction: discord.Interaction, appname: str):
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
-    await refresh_assets()
     await bot.tree.sync()
     print("Bot is ready!")
     activity = discord.Activity(type=discord.ActivityType.playing, name="crack.exe")
